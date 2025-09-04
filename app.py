@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
@@ -15,6 +15,7 @@ import jwt
 from jwt.exceptions import InvalidTokenError
 import threading
 from fastapi.security import OAuth2PasswordBearer
+from fastapi import Form
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
 
@@ -404,17 +405,80 @@ async def get_room_messages(
     
     return messages
 
+# Separate endpoints for text messages and file uploads
 @app.post("/api/rooms/{room_id}/messages", response_model=MessageResponse)
-async def create_message(
+async def create_text_message(
     room_id: str,
-    content: str = Form(...),
-    content_type: str = Form("text"),
-    file: Optional[UploadFile] = File(None),
+    message_data: MessageCreate,
     user: dict = Depends(get_current_user)
 ):
     db = get_db()
+    cursor = db.execute(
+        "SELECT id FROM room_participants WHERE room_id = ? AND user_id = ?",
+        (room_id, user["id"])
+    )
+    if not cursor.fetchone():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this room"
+        )
     
-    # Check if user is a participant of the room
+    message_id = str(uuid.uuid4())
+    
+    # Insert message into database
+    db.execute(
+        '''INSERT INTO messages 
+           (id, room_id, user_id, content_type, content) 
+           VALUES (?, ?, ?, ?, ?)''',
+        (message_id, room_id, user["id"], message_data.content_type, message_data.content)
+    )
+    
+    # Update room's last activity
+    db.execute(
+        "UPDATE rooms SET last_activity = CURRENT_TIMESTAMP WHERE id = ?",
+        (room_id,)
+    )
+    
+    db.commit()
+    
+    # Get the created message with username
+    cursor = db.execute('''
+        SELECT m.*, u.username 
+        FROM messages m 
+        JOIN users u ON m.user_id = u.id 
+        WHERE m.id = ?
+    ''', (message_id,))
+    
+    message = cursor.fetchone()
+    
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create message"
+        )
+    
+    # Broadcast to WebSocket connections
+    await manager.broadcast_to_room("new_message", room_id)
+    
+    return {
+        "id": message["id"],
+        "room_id": message["room_id"],
+        "user_id": message["user_id"],
+        "username": message["username"],
+        "content_type": message["content_type"],
+        "content": message["content"],
+        "file_path": message["file_path"],
+        "file_size": message["file_size"],
+        "created_at": message["created_at"]
+    }
+
+@app.post("/api/rooms/{room_id}/files", response_model=MessageResponse)
+async def upload_file_message(
+    room_id: str,
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user)
+):
+    db = get_db()
     cursor = db.execute(
         "SELECT id FROM room_participants WHERE room_id = ? AND user_id = ?",
         (room_id, user["id"])
@@ -428,20 +492,18 @@ async def create_message(
     message_id = str(uuid.uuid4())
     file_path = None
     file_size = None
-    
-    # Handle file upload
-    if file:
-        # Create uploads directory if it doesn't exist
+    content = ""
+    content_type = "file"
+
+    if file and file.filename:
+        # Handle file upload
         os.makedirs("uploads", exist_ok=True)
-        
-        # Generate unique filename
-        filename = file.filename if file.filename is not None else ""
+        filename = file.filename
         file_extension = os.path.splitext(filename)[1]
         unique_filename = f"{uuid.uuid4()}{file_extension}"
         file_path = f"uploads/{unique_filename}"
-        
-        # Save file
         file_size = 0
+        
         with open(file_path, "wb") as buffer:
             while True:
                 chunk = await file.read(1024)
@@ -449,8 +511,19 @@ async def create_message(
                     break
                 file_size += len(chunk)
                 buffer.write(chunk)
+        
+        # Determine content type based on file extension
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+            content_type = "gif" if filename.lower().endswith('.gif') else "image"
+        elif filename.lower().endswith(('.mp4', '.avi', '.mov', '.wmv')):
+            content_type = "video"
+        else:
+            content_type = "file"
+        
+        # Store the original filename as content
+        content = filename
     
-    # Create message
+    # Insert message into database
     db.execute(
         '''INSERT INTO messages 
            (id, room_id, user_id, content_type, content, file_path, file_size) 
@@ -475,6 +548,15 @@ async def create_message(
     ''', (message_id,))
     
     message = cursor.fetchone()
+    
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create message"
+        )
+    
+    # Broadcast to WebSocket connections
+    await manager.broadcast_to_room("new_message", room_id)
     
     return {
         "id": message["id"],
@@ -540,9 +622,19 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str):
     await manager.connect(websocket, room_id, user_id)
     try:
         while True:
-            await websocket.receive_text()
+            data = await websocket.receive_text()
+            # When we receive a message, it means there's a new message in the room
+            # We could parse the message data if we implemented proper WebSocket messaging
+            # For now, we'll just fetch the latest messages
+            await fetch_latest_messages_for_room(room_id)
     except WebSocketDisconnect:
         manager.disconnect(room_id, user_id)
+
+async def fetch_latest_messages_for_room(room_id: str):
+    try:
+        await manager.broadcast_to_room("new_message", room_id)
+    except Exception as e:
+        logger.error(f"Error fetching latest messages for room {room_id}: {e}")
 
 # Serve the index.html file
 @app.get("/", response_class=HTMLResponse)
