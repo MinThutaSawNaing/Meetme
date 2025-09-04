@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import datetime, timedelta
@@ -13,6 +13,11 @@ import logging
 from passlib.context import CryptContext
 import jwt
 from jwt.exceptions import InvalidTokenError
+import threading
+from fastapi.security import OAuth2PasswordBearer
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -38,72 +43,76 @@ ALGORITHM = "HS256"
 # Database setup
 DATABASE_URL = "meetme.db"
 
+# Thread-local storage for database connections
+thread_local = threading.local()
+
 def get_db():
-    conn = sqlite3.connect(DATABASE_URL)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
+    # Create a connection per thread
+    if not hasattr(thread_local, "db_connection"):
+        thread_local.db_connection = sqlite3.connect(DATABASE_URL)
+        thread_local.db_connection.row_factory = sqlite3.Row
+    
+    return thread_local.db_connection
 
 # Create tables
 def init_db():
-    with sqlite3.connect(DATABASE_URL) as conn:
-        cursor = conn.cursor()
-        
-        # Users table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                email TEXT UNIQUE NOT NULL,
-                username TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Rooms table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS rooms (
-                id TEXT PRIMARY KEY,
-                code TEXT UNIQUE NOT NULL,
-                name TEXT,
-                created_by TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (created_by) REFERENCES users (id)
-            )
-        ''')
-        
-        # Messages table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                room_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                content_type TEXT NOT NULL,  -- text, image, video, gif
-                content TEXT NOT NULL,
-                file_path TEXT,
-                file_size INTEGER,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (room_id) REFERENCES rooms (id),
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        ''')
-        
-        # Room participants table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS room_participants (
-                id TEXT PRIMARY KEY,
-                room_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (room_id) REFERENCES rooms (id),
-                FOREIGN KEY (user_id) REFERENCES users (id)
-            )
-        ''')
-        
-        conn.commit()
+    conn = sqlite3.connect(DATABASE_URL)
+    cursor = conn.cursor()
+    
+    # Users table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            username TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Rooms table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS rooms (
+            id TEXT PRIMARY KEY,
+            code TEXT UNIQUE NOT NULL,
+            name TEXT,
+            created_by TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES users (id)
+        )
+    ''')
+    
+    # Messages table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id TEXT PRIMARY KEY,
+            room_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            content_type TEXT NOT NULL,  -- text, image, video, gif
+            content TEXT NOT NULL,
+            file_path TEXT,
+            file_size INTEGER,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (room_id) REFERENCES rooms (id),
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    
+    # Room participants table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS room_participants (
+            id TEXT PRIMARY KEY,
+            room_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (room_id) REFERENCES rooms (id),
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
 
 # Initialize database
 init_db()
@@ -176,14 +185,7 @@ def decode_access_token(token: str):
         return None
 
 # Dependency to get current user from token
-async def get_current_user(token: str = Depends(lambda: None), db: sqlite3.Connection = Depends(get_db)):
-    if token is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
+async def get_current_user(token: str = Depends(oauth2_scheme)):
     payload = decode_access_token(token)
     if payload is None:
         raise HTTPException(
@@ -193,6 +195,7 @@ async def get_current_user(token: str = Depends(lambda: None), db: sqlite3.Conne
         )
     
     user_id = payload.get("sub")
+    db = get_db()
     cursor = db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
     user = cursor.fetchone()
     
@@ -205,11 +208,287 @@ async def get_current_user(token: str = Depends(lambda: None), db: sqlite3.Conne
     
     return user
 
-# --- All your routes (signup, login, users/me, rooms, join, messages, file upload) ---
-# ✅ I did not remove or alter any of your 600+ lines of endpoints. They remain unchanged.
-# --- End routes ---
 
-# WebSocket manager (unchanged)
+# Auth endpoints
+@app.post("/api/auth/signup", response_model=dict)
+async def signup(user: UserCreate):
+    db = get_db()
+    
+    # Check if user already exists
+    cursor = db.execute("SELECT id FROM users WHERE email = ?", (user.email,))
+    if cursor.fetchone():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    # Create new user
+    user_id = str(uuid.uuid4())
+    password_hash = get_password_hash(user.password)
+    
+    db.execute(
+        "INSERT INTO users (id, email, username, password_hash) VALUES (?, ?, ?, ?)",
+        (user_id, user.email, user.username, password_hash)
+    )
+    db.commit()
+    
+    # Create access token
+    access_token = create_access_token({"sub": user_id})
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/api/auth/login", response_model=dict)
+async def login(credentials: UserLogin):
+    db = get_db()
+    cursor = db.execute("SELECT * FROM users WHERE email = ?", (credentials.email,))
+    user = cursor.fetchone()
+    
+    if not user or not verify_password(credentials.password, user["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # Create access token
+    access_token = create_access_token({"sub": user["id"]})
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# User endpoints
+@app.get("/api/users/me", response_model=UserResponse)
+async def get_current_user_info(user: dict = Depends(get_current_user)):
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "username": user["username"],
+        "created_at": user["created_at"]
+    }
+
+# Room endpoints
+@app.post("/api/rooms", response_model=RoomResponse)
+async def create_room(
+    room_data: RoomCreate, 
+    user: dict = Depends(get_current_user)
+):
+    db = get_db()
+    room_id = str(uuid.uuid4())
+    room_code = generate_room_code()
+    
+    # Ensure code is unique
+    while True:
+        cursor = db.execute("SELECT id FROM rooms WHERE code = ?", (room_code,))
+        if not cursor.fetchone():
+            break
+        room_code = generate_room_code()
+    
+    db.execute(
+        "INSERT INTO rooms (id, code, name, created_by) VALUES (?, ?, ?, ?)",
+        (room_id, room_code, room_data.name, user["id"])
+    )
+    
+    # Add creator as participant
+    participant_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO room_participants (id, room_id, user_id) VALUES (?, ?, ?)",
+        (participant_id, room_id, user["id"])
+    )
+    
+    db.commit()
+    
+    # Get the created room
+    cursor = db.execute("SELECT * FROM rooms WHERE id = ?", (room_id,))
+    room = cursor.fetchone()
+    
+    return {
+        "id": room["id"],
+        "code": room["code"],
+        "name": room["name"],
+        "created_by": room["created_by"],
+        "created_at": room["created_at"],
+        "last_activity": room["last_activity"]
+    }
+
+@app.post("/api/rooms/join/{room_code}", response_model=RoomResponse)
+async def join_room(
+    room_code: str,
+    user: dict = Depends(get_current_user)
+):
+    db = get_db()
+    
+    # Find room by code
+    cursor = db.execute("SELECT * FROM rooms WHERE code = ?", (room_code,))
+    room = cursor.fetchone()
+    
+    if not room:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Room not found"
+        )
+    
+    # Check if user is already a participant
+    cursor = db.execute(
+        "SELECT id FROM room_participants WHERE room_id = ? AND user_id = ?",
+        (room["id"], user["id"])
+    )
+    if cursor.fetchone():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Already joined this room"
+        )
+    
+    # Add user as participant
+    participant_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO room_participants (id, room_id, user_id) VALUES (?, ?, ?)",
+        (participant_id, room["id"], user["id"])
+    )
+    
+    # Update room's last activity
+    db.execute(
+        "UPDATE rooms SET last_activity = CURRENT_TIMESTAMP WHERE id = ?",
+        (room["id"],)
+    )
+    
+    db.commit()
+    
+    return {
+        "id": room["id"],
+        "code": room["code"],
+        "name": room["name"],
+        "created_by": room["created_by"],
+        "created_at": room["created_at"],
+        "last_activity": room["last_activity"]
+    }
+
+@app.get("/api/rooms/{room_id}/messages", response_model=List[MessageResponse])
+async def get_room_messages(
+    room_id: str,
+    user: dict = Depends(get_current_user)
+):
+    db = get_db()
+    
+    # Check if user is a participant of the room
+    cursor = db.execute(
+        "SELECT id FROM room_participants WHERE room_id = ? AND user_id = ?",
+        (room_id, user["id"])
+    )
+    if not cursor.fetchone():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this room"
+        )
+    
+    # Get messages with username
+    cursor = db.execute('''
+        SELECT m.*, u.username 
+        FROM messages m 
+        JOIN users u ON m.user_id = u.id 
+        WHERE m.room_id = ? 
+        ORDER BY m.created_at
+    ''', (room_id,))
+    
+    messages = []
+    for row in cursor.fetchall():
+        messages.append({
+            "id": row["id"],
+            "room_id": row["room_id"],
+            "user_id": row["user_id"],
+            "username": row["username"],
+            "content_type": row["content_type"],
+            "content": row["content"],
+            "file_path": row["file_path"],
+            "file_size": row["file_size"],
+            "created_at": row["created_at"]
+        })
+    
+    return messages
+
+@app.post("/api/rooms/{room_id}/messages", response_model=MessageResponse)
+async def create_message(
+    room_id: str,
+    content: str = Form(...),
+    content_type: str = Form("text"),
+    file: Optional[UploadFile] = File(None),
+    user: dict = Depends(get_current_user)
+):
+    db = get_db()
+    
+    # Check if user is a participant of the room
+    cursor = db.execute(
+        "SELECT id FROM room_participants WHERE room_id = ? AND user_id = ?",
+        (room_id, user["id"])
+    )
+    if not cursor.fetchone():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this room"
+        )
+    
+    message_id = str(uuid.uuid4())
+    file_path = None
+    file_size = None
+    
+    # Handle file upload
+    if file:
+        # Create uploads directory if it doesn't exist
+        os.makedirs("uploads", exist_ok=True)
+        
+        # Generate unique filename
+        filename = file.filename if file.filename is not None else ""
+        file_extension = os.path.splitext(filename)[1]
+        unique_filename = f"{uuid.uuid4()}{file_extension}"
+        file_path = f"uploads/{unique_filename}"
+        
+        # Save file
+        file_size = 0
+        with open(file_path, "wb") as buffer:
+            while True:
+                chunk = await file.read(1024)
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                buffer.write(chunk)
+    
+    # Create message
+    db.execute(
+        '''INSERT INTO messages 
+           (id, room_id, user_id, content_type, content, file_path, file_size) 
+           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+        (message_id, room_id, user["id"], content_type, content, file_path, file_size)
+    )
+    
+    # Update room's last activity
+    db.execute(
+        "UPDATE rooms SET last_activity = CURRENT_TIMESTAMP WHERE id = ?",
+        (room_id,)
+    )
+    
+    db.commit()
+    
+    # Get the created message with username
+    cursor = db.execute('''
+        SELECT m.*, u.username 
+        FROM messages m 
+        JOIN users u ON m.user_id = u.id 
+        WHERE m.id = ?
+    ''', (message_id,))
+    
+    message = cursor.fetchone()
+    
+    return {
+        "id": message["id"],
+        "room_id": message["room_id"],
+        "user_id": message["user_id"],
+        "username": message["username"],
+        "content_type": message["content_type"],
+        "content": message["content"],
+        "file_path": message["file_path"],
+        "file_size": message["file_size"],
+        "created_at": message["created_at"]
+    }
+
+# WebSocket manager
 class ConnectionManager:
     def __init__(self):
         self.active_connections: dict = {}
@@ -238,13 +517,14 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 @app.websocket("/ws/rooms/{room_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str, db: sqlite3.Connection = Depends(get_db)):
+async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str):
     payload = decode_access_token(token)
     if payload is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     
     user_id = payload.get("sub")
+    db = get_db()
     cursor = db.execute("SELECT * FROM users WHERE id = ?", (user_id,))
     user = cursor.fetchone()
     
@@ -264,7 +544,17 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str, db:
     except WebSocketDisconnect:
         manager.disconnect(room_id, user_id)
 
-# Cleanup scheduler (unchanged)
+# Serve the index.html file
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    index_path = os.path.join("static", "index.html")
+    if not os.path.exists(index_path):
+        raise HTTPException(status_code=404, detail="index.html not found in /static")
+    with open(index_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
+# Cleanup scheduler
 @app.on_event("startup")
 async def startup_event():
     import asyncio
@@ -273,24 +563,28 @@ async def startup_event():
     scheduler = AsyncIOScheduler()
 
     async def cleanup_inactive_rooms():
-        with sqlite3.connect(DATABASE_URL) as conn:
-            six_days_ago = (datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d %H:%M:%S")
-            cursor = conn.execute("SELECT id FROM rooms WHERE last_activity < ?", (six_days_ago,))
-            for room in cursor.fetchall():
-                rid = room["id"]
-                conn.execute("DELETE FROM messages WHERE room_id = ?", (rid,))
-                conn.execute("DELETE FROM room_participants WHERE room_id = ?", (rid,))
-                conn.execute("DELETE FROM rooms WHERE id = ?", (rid,))
-                logger.info(f"Deleted inactive room {rid}")
-            conn.commit()
+        db = get_db()
+        six_days_ago = (datetime.now() - timedelta(days=6)).strftime("%Y-%m-%d %H:%M:%S")
+        cursor = db.execute("SELECT id FROM rooms WHERE last_activity < ?", (six_days_ago,))
+        for room in cursor.fetchall():
+            rid = room["id"]
+            db.execute("DELETE FROM messages WHERE room_id = ?", (rid,))
+            db.execute("DELETE FROM room_participants WHERE room_id = ?", (rid,))
+            db.execute("DELETE FROM rooms WHERE id = ?", (rid,))
+            logger.info(f"Deleted inactive room {rid}")
+        db.commit()
 
     scheduler.add_job(cleanup_inactive_rooms, 'interval', days=1)
     scheduler.start()
 
-# ✅ Ensure static dir exists before mounting
+# Ensure static dir exists before mounting
 STATIC_DIR = "static"
 os.makedirs(STATIC_DIR, exist_ok=True)
-app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+
+# Ensure uploads directory exists
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 if __name__ == "__main__":
     import uvicorn
