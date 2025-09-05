@@ -710,13 +710,14 @@
 
     <script>
       // API Base URL - Update this to match your backend URL
-      const API_BASE_URL = "http://localhost:8000";
+      const API_BASE_URL = "http://192.168.0.110:8000";
 
       // Global state
       let currentUser = null;
       let currentRoom = null;
       let authToken = null;
       let websocket = null;
+      let lastMessageId = null;
 
       // DOM Elements
       const authSection = document.getElementById("auth-section");
@@ -993,7 +994,7 @@
 
           try {
             const response = await fetch(
-              `${API_BASE_URL}/api/rooms/${currentRoom.id}/messages`,
+              `${API_BASE_URL}/api/rooms/${currentRoom.id}/files`,
               {
                 method: "POST",
                 headers: {
@@ -1024,6 +1025,7 @@
           websocket = null;
         }
         currentRoom = null;
+        lastMessageId = null;
         showRoomSelection();
       });
 
@@ -1083,6 +1085,11 @@
               addMessageToChat(message);
             });
             scrollToBottom();
+
+            // Store the ID of the last message
+            if (messages.length > 0) {
+              lastMessageId = messages[messages.length - 1].id;
+            }
           } else {
             const error = await response.json();
             throw new Error(error.detail || "Failed to load messages");
@@ -1106,7 +1113,6 @@
         const wsUrl = `${wsProtocol}//${window.location.host}/ws/rooms/${currentRoom.id}?token=${authToken}`;
 
         // For development with FastAPI on different port
-        const devWsUrl = `ws://localhost:8000/ws/rooms/${currentRoom.id}?token=${authToken}`;
 
         websocket = new WebSocket(devWsUrl);
 
@@ -1114,11 +1120,18 @@
           console.log("WebSocket connection established");
         };
 
-        websocket.onmessage = (event) => {
-          // When we receive a message, it means there's a new message in the room
-          // We could parse the message data if we implemented proper WebSocket messaging
-          // For now, we'll just fetch the latest messages
-          fetchLatestMessages();
+        websocket.onmessage = async (event) => {
+          try {
+            // Parse the JSON message
+            const data = JSON.parse(event.data);
+
+            if (data.type === "new_message") {
+              // Fetch new messages since the last one we have
+              await fetchNewMessages();
+            }
+          } catch (error) {
+            console.error("Error processing WebSocket message:", error);
+          }
         };
 
         websocket.onclose = () => {
@@ -1130,8 +1143,8 @@
         };
       }
 
-      // Function to fetch the latest messages
-      async function fetchLatestMessages() {
+      // Function to fetch new messages
+      async function fetchNewMessages() {
         try {
           const response = await fetch(
             `${API_BASE_URL}/api/rooms/${currentRoom.id}/messages`,
@@ -1144,14 +1157,22 @@
 
           if (response.ok) {
             const messages = await response.json();
+
+            // Clear existing messages and repopulate
             chatMessages.innerHTML = "";
             messages.forEach((message) => {
               addMessageToChat(message);
             });
+
+            // Update the last message ID if we have messages
+            if (messages.length > 0) {
+              lastMessageId = messages[messages.length - 1].id;
+            }
+
             scrollToBottom();
           }
         } catch (error) {
-          showNotification(error.message, "error");
+          console.error("Error fetching new messages:", error);
         }
       }
 
@@ -1180,6 +1201,9 @@
             const message = await response.json();
             addMessageToChat(message, true);
             messageInput.value = "";
+
+            // Update the last message ID
+            lastMessageId = message.id;
           } else {
             const error = await response.json();
             throw new Error(error.detail || "Failed to send message");
@@ -1194,6 +1218,7 @@
         const messageElement = document.createElement("div");
         messageElement.classList.add("message");
         messageElement.classList.add(isSentByCurrentUser ? "sent" : "received");
+        messageElement.dataset.messageId = message.id;
 
         let messageContent = "";
 
@@ -1219,6 +1244,12 @@
           messageContent = `
                     <div class="message-content">GIF shared</div>
                     <img src="${API_BASE_URL}/${message.file_path}" alt="Shared GIF" class="message-img">
+                `;
+        } else if (message.content_type === "file") {
+          messageContent = `
+                    <div class="message-content">File shared: ${escapeHtml(
+                      message.content
+                    )}</div>
                 `;
         }
 
