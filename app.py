@@ -458,7 +458,10 @@ async def create_text_message(
         )
     
     # Broadcast to WebSocket connections
-    await manager.broadcast_to_room("new_message", room_id)
+    await manager.broadcast_to_room({
+        "type": "new_message",
+        "room_id": room_id
+    }, room_id)
     
     return {
         "id": message["id"],
@@ -556,7 +559,10 @@ async def upload_file_message(
         )
     
     # Broadcast to WebSocket connections
-    await manager.broadcast_to_room("new_message", room_id)
+    await manager.broadcast_to_room({
+        "type": "new_message",
+        "room_id": room_id
+    }, room_id)
     
     return {
         "id": message["id"],
@@ -570,6 +576,7 @@ async def upload_file_message(
         "created_at": message["created_at"]
     }
 
+# WebSocket manager
 # WebSocket manager
 class ConnectionManager:
     def __init__(self):
@@ -587,12 +594,12 @@ class ConnectionManager:
             if not self.active_connections[room_id]:
                 del self.active_connections[room_id]
 
-    async def broadcast_to_room(self, message: str, room_id: str, exclude_user_id: Optional[str] = None):
+    async def broadcast_to_room(self, message: dict, room_id: str, exclude_user_id: Optional[str] = None):
         if room_id in self.active_connections:
             for uid, connection in self.active_connections[room_id].items():
                 if uid != exclude_user_id:
                     try:
-                        await connection.send_text(message)
+                        await connection.send_json(message)  # Changed to send_json
                     except Exception as e:
                         logger.error(f"Error sending to {uid}: {e}")
 
@@ -622,17 +629,22 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str):
     await manager.connect(websocket, room_id, user_id)
     try:
         while True:
-            data = await websocket.receive_text()
-            # When we receive a message, it means there's a new message in the room
-            # We could parse the message data if we implemented proper WebSocket messaging
-            # For now, we'll just fetch the latest messages
-            await fetch_latest_messages_for_room(room_id)
+            # Wait for any message from client (we don't need to process it)
+            await websocket.receive_text()
+            # When we receive a message, broadcast to all clients in the room
+            await manager.broadcast_to_room({  # Send JSON object instead of string
+                "type": "new_message",
+                "room_id": room_id
+            }, room_id)
     except WebSocketDisconnect:
         manager.disconnect(room_id, user_id)
 
 async def fetch_latest_messages_for_room(room_id: str):
     try:
-        await manager.broadcast_to_room("new_message", room_id)
+        await manager.broadcast_to_room({
+            "type": "new_message",
+            "room_id": room_id
+        }, room_id)
     except Exception as e:
         logger.error(f"Error fetching latest messages for room {room_id}: {e}")
 
