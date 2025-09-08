@@ -710,7 +710,7 @@
 
     <script>
       // API Base URL - Update this to match your backend URL
-      const API_BASE_URL = "http://192.168.0.110:8000";
+      const API_BASE_URL = "http://192.168.0.114:8000";
 
       // Global state
       let currentUser = null;
@@ -1107,41 +1107,76 @@
         if (websocket) {
           websocket.close();
         }
-
         const wsProtocol =
           window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${wsProtocol}//${window.location.host}/ws/rooms/${currentRoom.id}?token=${authToken}`;
-
-        // For development with FastAPI on different port
-
-        websocket = new WebSocket(devWsUrl);
-
+        const wsHost = API_BASE_URL.replace(/^https?:\/\//, "");
+        const wsUrl = `${wsProtocol}//${wsHost}/ws/rooms/${currentRoom.id}?token=${authToken}`;
+        websocket = new WebSocket(wsUrl);
         websocket.onopen = () => {
           console.log("WebSocket connection established");
+          // Send a ping to keep connection alive
+          setInterval(() => {
+            if (websocket.readyState === WebSocket.OPEN) {
+              websocket.send("ping");
+            }
+          }, 30000); // Send ping every 30 seconds
         };
-
+        // START OF CORRECTED CODE BLOCK
         websocket.onmessage = async (event) => {
-          try {
-            // Parse the JSON message
-            const data = JSON.parse(event.data);
+          // Handle heartbeat responses first
+          if (event.data === "pong") {
+            return; // Do nothing for pong
+          }
 
+          try {
+            // Now try to parse as JSON for actual notifications
+            const data = JSON.parse(event.data);
             if (data.type === "new_message") {
-              // Fetch new messages since the last one we have
+              console.log(
+                "New message notification received, fetching messages..."
+              );
+              // Fetch all messages to get the latest
               await fetchNewMessages();
             }
+            // You can add handling for other message types here in the future
           } catch (error) {
-            console.error("Error processing WebSocket message:", error);
+            console.error(
+              "Error processing WebSocket message:",
+              error,
+              event.data
+            );
           }
         };
-
+        // END OF CORRECTED CODE BLOCK
         websocket.onclose = () => {
           console.log("WebSocket connection closed");
+          // Try to reconnect after 5 seconds
+          setTimeout(() => {
+            if (currentRoom) {
+              console.log("Attempting to reconnect WebSocket...");
+              connectWebSocket();
+            }
+          }, 5000);
         };
-
         websocket.onerror = (error) => {
           console.error("WebSocket error:", error);
         };
       }
+
+      websocket.onclose = () => {
+        console.log("WebSocket connection closed");
+        // Try to reconnect after 5 seconds
+        setTimeout(() => {
+          if (currentRoom) {
+            console.log("Attempting to reconnect WebSocket...");
+            connectWebSocket();
+          }
+        }, 5000);
+      };
+
+      websocket.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
 
       // Function to fetch new messages
       async function fetchNewMessages() {
@@ -1215,13 +1250,15 @@
 
       // Function to add a message to the chat UI
       function addMessageToChat(message, isSentByCurrentUser = false) {
+        // Determine if the message was sent by the current user
+        // This fixes the bug: compare the message's user_id with the global currentUser's id
+        const isCurrentUser = message.user_id === currentUser.id;
+
         const messageElement = document.createElement("div");
         messageElement.classList.add("message");
-        messageElement.classList.add(isSentByCurrentUser ? "sent" : "received");
+        messageElement.classList.add(isCurrentUser ? "sent" : "received");
         messageElement.dataset.messageId = message.id;
-
         let messageContent = "";
-
         // Handle different content types
         if (message.content_type === "text") {
           messageContent = `<div class="message-content">${escapeHtml(
@@ -1229,42 +1266,39 @@
           )}</div>`;
         } else if (message.content_type === "image") {
           messageContent = `
-                    <div class="message-content">Image shared</div>
-                    <img src="${API_BASE_URL}/${message.file_path}" alt="Shared image" class="message-img">
-                `;
+                          <div class="message-content">Image shared</div>
+                          <img src="${API_BASE_URL}/${message.file_path}" alt="Shared image" class="message-img">
+                      `;
         } else if (message.content_type === "video") {
           messageContent = `
-                    <div class="message-content">Video shared</div>
-                    <video controls class="message-video">
-                        <source src="${API_BASE_URL}/${message.file_path}" type="video/mp4">
-                        Your browser does not support the video tag.
-                    </video>
-                `;
+                          <div class="message-content">Video shared</div>
+                          <video controls class="message-video">
+                              <source src="${API_BASE_URL}/${message.file_path}" type="video/mp4">
+                              Your browser does not support the video tag.
+                          </video>
+                      `;
         } else if (message.content_type === "gif") {
           messageContent = `
-                    <div class="message-content">GIF shared</div>
-                    <img src="${API_BASE_URL}/${message.file_path}" alt="Shared GIF" class="message-img">
-                `;
+                          <div class="message-content">GIF shared</div>
+                          <img src="${API_BASE_URL}/${message.file_path}" alt="Shared GIF" class="message-img">
+                      `;
         } else if (message.content_type === "file") {
           messageContent = `
-                    <div class="message-content">File shared: ${escapeHtml(
-                      message.content
-                    )}</div>
-                `;
+                          <div class="message-content">File shared: ${escapeHtml(
+                            message.content
+                          )}</div>
+                      `;
         }
-
         // Format timestamp
         const timestamp = new Date(message.created_at).toLocaleTimeString();
-
         messageElement.innerHTML = `
-                ${messageContent}
-                <div class="message-info">
-                    ${
-                      isSentByCurrentUser ? "You" : escapeHtml(message.username)
-                    } • ${timestamp}
-                </div>
-            `;
-
+                      ${messageContent}
+                      <div class="message-info">
+                          ${
+                            isCurrentUser ? "You" : escapeHtml(message.username)
+                          } • ${timestamp}
+                      </div>
+                  `;
         chatMessages.appendChild(messageElement);
         scrollToBottom();
       }
