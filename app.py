@@ -332,27 +332,25 @@ async def join_room(
         "SELECT id FROM room_participants WHERE room_id = ? AND user_id = ?",
         (room["id"], user["id"])
     )
-    if cursor.fetchone():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Already joined this room"
+    existing_participant = cursor.fetchone()
+    
+    if not existing_participant:
+        # Add user as participant only if they are not already in the room
+        participant_id = str(uuid.uuid4())
+        db.execute(
+            "INSERT INTO room_participants (id, room_id, user_id) VALUES (?, ?, ?)",
+            (participant_id, room["id"], user["id"])
         )
+        
+        # Update room's last activity
+        db.execute(
+            "UPDATE rooms SET last_activity = CURRENT_TIMESTAMP WHERE id = ?",
+            (room["id"],)
+        )
+        
+        db.commit()
     
-    # Add user as participant
-    participant_id = str(uuid.uuid4())
-    db.execute(
-        "INSERT INTO room_participants (id, room_id, user_id) VALUES (?, ?, ?)",
-        (participant_id, room["id"], user["id"])
-    )
-    
-    # Update room's last activity
-    db.execute(
-        "UPDATE rooms SET last_activity = CURRENT_TIMESTAMP WHERE id = ?",
-        (room["id"],)
-    )
-    
-    db.commit()
-    
+    # Return the room info whether they were just added or already a participant
     return {
         "id": room["id"],
         "code": room["code"],
