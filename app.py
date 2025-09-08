@@ -460,7 +460,8 @@ async def create_text_message(
     # Broadcast to WebSocket connections
     await manager.broadcast_to_room({
         "type": "new_message",
-        "room_id": room_id
+        "room_id": room_id,
+        "action": "refresh_messages"  # Tell clients to refresh their messages
     }, room_id)
     
     return {
@@ -561,7 +562,8 @@ async def upload_file_message(
     # Broadcast to WebSocket connections
     await manager.broadcast_to_room({
         "type": "new_message",
-        "room_id": room_id
+        "room_id": room_id,
+        "action": "refresh_messages"  # Tell clients to refresh their messages
     }, room_id)
     
     return {
@@ -587,21 +589,30 @@ class ConnectionManager:
         if room_id not in self.active_connections:
             self.active_connections[room_id] = {}
         self.active_connections[room_id][user_id] = websocket
+        logger.info(f"User {user_id} connected to room {room_id}")
 
     def disconnect(self, room_id: str, user_id: str):
         if room_id in self.active_connections and user_id in self.active_connections[room_id]:
             del self.active_connections[room_id][user_id]
+            logger.info(f"User {user_id} disconnected from room {room_id}")
             if not self.active_connections[room_id]:
                 del self.active_connections[room_id]
+                logger.info(f"Room {room_id} has no more active connections")
 
-    async def broadcast_to_room(self, message: dict, room_id: str, exclude_user_id: Optional[str] = None):
+    async def broadcast_to_room(self, message: dict, room_id: str):
         if room_id in self.active_connections:
-            for uid, connection in self.active_connections[room_id].items():
-                if uid != exclude_user_id:
-                    try:
-                        await connection.send_json(message)  # Changed to send_json
-                    except Exception as e:
-                        logger.error(f"Error sending to {uid}: {e}")
+            disconnected_users = []
+            for user_id, connection in self.active_connections[room_id].items():
+                try:
+                    await connection.send_json(message)
+                    logger.info(f"Broadcasted message to user {user_id} in room {room_id}")
+                except Exception as e:
+                    logger.error(f"Error sending to user {user_id}: {e}")
+                    disconnected_users.append(user_id)
+            
+            # Clean up disconnected users
+            for user_id in disconnected_users:
+                self.disconnect(room_id, user_id)
 
 manager = ConnectionManager()
 
@@ -629,21 +640,23 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, token: str):
     await manager.connect(websocket, room_id, user_id)
     try:
         while True:
-            # Wait for any message from client (we don't need to process it)
-            await websocket.receive_text()
-            # When we receive a message, broadcast to all clients in the room
-            await manager.broadcast_to_room({  # Send JSON object instead of string
-                "type": "new_message",
-                "room_id": room_id
-            }, room_id)
+            # Keep the connection alive - we don't need to process incoming messages
+            # from clients since all messages go through HTTP endpoints
+            data = await websocket.receive_text()
+            # Just acknowledge the message to keep connection alive
+            await websocket.send_text("pong")
+            
     except WebSocketDisconnect:
         manager.disconnect(room_id, user_id)
+        logger.info(f"WebSocket disconnected for user {user_id} in room {room_id}")
 
 async def fetch_latest_messages_for_room(room_id: str):
     try:
+        # Broadcast to WebSocket connections
         await manager.broadcast_to_room({
             "type": "new_message",
-            "room_id": room_id
+            "room_id": room_id,
+            "action": "refresh_messages"  # Tell clients to refresh their messages
         }, room_id)
     except Exception as e:
         logger.error(f"Error fetching latest messages for room {room_id}: {e}")
