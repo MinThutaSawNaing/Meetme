@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Meetme - Chat Room App</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <style>
+      /* Global Styles */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      :root {
+        --primary-color: #4361ee;
+        --secondary-color: #3a0ca3;
+        --accent-color: #7209b7;
+        --light-color: #f8f9fa;
+        --dark-color: #212529;
+        --success-color: #4cc9f0;
+        --warning-color: #f72585;
+        --gray-color: #6c757d;
+        --light-gray: #e9ecef;
+      }
+
+      body {
+        background-color: #f5f7fb;
+        color: var(--dark-color);
+        line-height: 1.6;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 15px;
+      }
+
+      .app {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Auth Styles */
+      .auth-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 20px;
+        background: linear-gradient(135deg, #4361ee 0%, #3a0ca3 100%);
+      }
+
+      .auth-box {
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 400px;
+        padding: 30px;
+      }
+
+      .auth-header {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+
+      .auth-header h1 {
+        color: var(--primary-color);
+        font-size: 28px;
+        margin-bottom: 10px;
+      }
+
+      .auth-header p {
+        color: var(--gray-color);
+      }
+
+      .auth-tabs {
+        display: flex;
+        margin-bottom: 20px;
+        border-bottom: 1px solid var(--light-gray);
+      }
+
+      .auth-tab {
+        flex: 1;
+        text-align: center;
+        padding: 10px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .auth-tab.active {
+        color: var(--primary-color);
+        border-bottom: 2px solid var(--primary-color);
+      }
+
+      .form-group {
+        margin-bottom: 20px;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 500;
+        color: var(--dark-color);
+      }
+
+      .form-control {
+        width: 100%;
+        padding: 12px 15px;
+        border: 1px solid var(--light-gray);
+        border-radius: 5px;
+        font-size: 16px;
+        transition: border-color 0.3s;
+      }
+
+      .form-control:focus {
+        outline: none;
+        border-color: var(--primary-color);
+      }
+
+      .btn {
+        display: inline-block;
+        padding: 12px 20px;
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: 500;
+        transition: background-color 0.3s;
+        text-align: center;
+        width: 100%;
+      }
+
+      .btn:hover {
+        background-color: var(--secondary-color);
+      }
+
+      .btn-secondary {
+        background-color: var(--gray-color);
+      }
+
+      .btn-secondary:hover {
+        background-color: #5a6268;
+      }
+
+      /* Room Selection */
+      .room-selection {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .room-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        justify-content: center;
+        margin-top: 30px;
+      }
+
+      .room-option {
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+        padding: 30px;
+        width: 300px;
+        text-align: center;
+        transition: transform 0.3s, box-shadow 0.3s;
+        cursor: pointer;
+      }
+
+      .room-option:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+      }
+
+      .room-option i {
+        font-size: 48px;
+        color: var(--primary-color);
+        margin-bottom: 20px;
+      }
+
+      .room-option h3 {
+        margin-bottom: 15px;
+        color: var(--dark-color);
+      }
+
+      .room-option p {
+        color: var(--gray-color);
+        margin-bottom: 20px;
+      }
+
+      /* Room Creation/Join */
+      .room-form-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .room-form {
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 500px;
+        padding: 30px;
+      }
+
+      /* Chat Room */
+      .chat-container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+
+      .chat-header {
+        background-color: var(--primary-color);
+        color: white;
+        padding: 15px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .room-info {
+        display: flex;
+        align-items: center;
+      }
+
+      .room-code {
+        background: rgba(255, 255, 255, 0.2);
+        padding: 5px 10px;
+        border-radius: 20px;
+        margin-left: 10px;
+        margin-right: 10px;
+        font-size: 14px;
+      }
+
+      .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        background-color: #f0f2f5;
+      }
+
+      .message {
+        margin-bottom: 15px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .message-content {
+        padding: 10px 15px;
+        border-radius: 18px;
+        max-width: 70%;
+        word-wrap: break-word;
+      }
+
+      .message.sent {
+        align-items: flex-end;
+      }
+
+      .message.sent .message-content {
+        background-color: var(--primary-color);
+        color: white;
+      }
+
+      .message.received {
+        align-items: flex-start;
+      }
+
+      .message.received .message-content {
+        background-color: white;
+        color: var(--dark-color);
+        border: 1px solid var(--light-gray);
+      }
+
+      .message-info {
+        font-size: 12px;
+        color: var(--gray-color);
+        margin: 5px 10px;
+      }
+
+      .message-img,
+      .message-video {
+        max-width: 100%;
+        border-radius: 10px;
+        margin-top: 5px;
+      }
+
+      .chat-input {
+        display: flex;
+        padding: 15px;
+        background-color: white;
+        border-top: 1px solid var(--light-gray);
+      }
+
+      .message-input {
+        flex: 1;
+        padding: 12px 15px;
+        border: 1px solid var(--light-gray);
+        border-radius: 25px;
+        margin-right: 10px;
+        font-size: 16px;
+      }
+
+      .message-input:focus {
+        outline: none;
+        border-color: var(--primary-color);
+      }
+
+      .send-btn,
+      .attach-btn {
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 45px;
+        height: 45px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        margin-left: 10px;
+      }
+
+      .attach-btn {
+        background: var(--gray-color);
+      }
+
+      /* Responsive Design */
+      @media (max-width: 768px) {
+        .auth-box {
+          padding: 20px;
+        }
+
+        .room-options {
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .room-option {
+          width: 100%;
+          max-width: 300px;
+        }
+
+        .message-content {
+          max-width: 85%;
+        }
+
+        .chat-input {
+          padding: 10px;
+        }
+
+        .send-btn,
+        .attach-btn {
+          width: 40px;
+          height: 40px;
+        }
+      }
+
+      /* Utility Classes */
+      .hidden {
+        display: none !important;
+      }
+
+      .text-center {
+        text-align: center;
+      }
+
+      .mt-20 {
+        margin-top: 20px;
+      }
+
+      /* Icons */
+      .icon {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+        stroke-width: 0;
+        stroke: currentColor;
+        fill: currentColor;
+      }
+
+      /* Loading Spinner */
+      .spinner {
+        border: 3px solid rgba(0, 0, 0, 0.1);
+        border-radius: 50%;
+        border-top: 3px solid var(--primary-color);
+        width: 20px;
+        height: 20px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Notifications */
+      .notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        background: white;
+        border-radius: 5px;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+        z-index: 1000;
+      }
+
+      .notification.show {
+        transform: translateX(0);
+      }
+
+      .notification.success {
+        border-left: 4px solid var(--success-color);
+      }
+
+      .notification.error {
+        border-left: 4px solid var(--warning-color);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <!-- Authentication Section -->
+      <section id="auth-section" class="auth-container">
+        <div class="auth-box">
+          <div class="auth-header">
+            <h1>Meetme</h1>
+            <p>Connect with people in real-time chat rooms</p>
+          </div>
+
+          <div class="auth-tabs">
+            <div class="auth-tab active" id="login-tab">Login</div>
+            <div class="auth-tab" id="signup-tab">Sign Up</div>
+          </div>
+
+          <form id="login-form">
+            <div class="form-group">
+              <label for="login-email">Email</label>
+              <input
+                type="email"
+                id="login-email"
+                class="form-control"
+                placeholder="Your email"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="login-password">Password</label>
+              <input
+                type="password"
+                id="login-password"
+                class="form-control"
+                placeholder="Your password"
+                required
+              />
+            </div>
+            <button type="submit" class="btn" id="login-btn">Login</button>
+          </form>
+
+          <form id="signup-form" class="hidden">
+            <div class="form-group">
+              <label for="signup-email">Email</label>
+              <input
+                type="email"
+                id="signup-email"
+                class="form-control"
+                placeholder="Your email"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="signup-username">Username</label>
+              <input
+                type="text"
+                id="signup-username"
+                class="form-control"
+                placeholder="Choose a username"
+                required
+              />
+            </div>
+            <div class="form-group">
+              <label for="signup-password">Password</label>
+              <input
+                type="password"
+                id="signup-password"
+                class="form-control"
+                placeholder="Create a password"
+                required
+              />
+            </div>
+            <button type="submit" class="btn" id="signup-btn">Sign Up</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- Room Selection Section -->
+      <section id="room-selection-section" class="room-selection hidden">
+        <div class="container">
+          <div class="text-center">
+            <h1>Welcome to Meetme</h1>
+            <p>Choose an option to start chatting</p>
+          </div>
+
+          <div class="room-options">
+            <div class="room-option" id="join-room-btn">
+              <svg
+                class="icon"
+                aria-hidden="true"
+                focusable="false"
+                data-prefix="fas"
+                data-icon="door-open"
+                role="img"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 640 512"
+              >
+                <path
+                  fill="currentColor"
+                  d="M624 448h-80V113.45C544 86.19 522.47 64 496 64H384v64h96v320h144c8.84 0 16-7.16 16-16v-32c0-8.84-7.16-16-16-16zM312.24 1.01l-192 49.74C105.99 54.44 96 67.7 96 82.92V448H16c-8.84 0-16 7.16-16 16v32c0 8.84 7.16 16 16 16h336V33.18c0-21.58-19.56-37.41-39.76-32.17zM264 288c-13.25 0-24-14.33-24-32s10.75-32 24-32 24 14.33 24 32-10.75 32-24 32z"
+                ></path>
+              </svg>
+              <h3>Join a Room</h3>
+              <p>Enter an existing room with a 6-digit code</p>
+            </div>
+
+            <div class="room-option" id="create-room-btn">
+              <svg
+                class="icon"
+                aria-hidden="true"
+                focusable="false"
+                data-prefix="fas"
+                data-icon="plus-circle"
+                role="img"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 512 512"
+              >
+                <path
+                  fill="currentColor"
+                  d="M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm144 276c0 6.6-5.4 12-12 12h-92v92c0 6.6-5.4 12-12 12h-56c-6.6 0-12-5.4-12-12v-92h-92c-6.6 0-12-5.4-12-12v-56c0-6.6 5.4-12 12-12h92v-92c0-6.6 5.4-12 12-12h56c6.6 0 12 5.4 12 12v92h92c6.6 0 12 5.4 12 12v56z"
+                ></path>
+              </svg>
+              <h3>Create a Room</h3>
+              <p>Create a new room and invite others with a code</p>
+            </div>
+          </div>
+
+          <div class="mt-20">
+            <button class="btn btn-secondary" id="logout-btn">Logout</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Join Room Form -->
+      <section id="join-room-section" class="room-form-container hidden">
+        <div class="room-form">
+          <div class="auth-header">
+            <h1>Join a Room</h1>
+            <p>Enter the 6-digit code to join an existing room</p>
+          </div>
+
+          <form id="join-room-form">
+            <div class="form-group">
+              <label for="room-code">Room Code</label>
+              <input
+                type="text"
+                id="room-code"
+                class="form-control"
+                placeholder="Enter 6-digit code"
+                pattern="[0-9]{6}"
+                required
+              />
+            </div>
+            <button type="submit" class="btn" id="join-room-submit-btn">
+              Join Room
+            </button>
+          </form>
+
+          <div class="text-center mt-20">
+            <button class="btn btn-secondary" id="back-to-options-btn">
+              Back to Options
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Create Room Form -->
+      <section id="create-room-section" class="room-form-container hidden">
+        <div class="room-form">
+          <div class="auth-header">
+            <h1>Create a Room</h1>
+            <p>Create a new chat room</p>
+          </div>
+
+          <form id="create-room-form">
+            <div class="form-group">
+              <label for="room-name">Room Name (Optional)</label>
+              <input
+                type="text"
+                id="room-name"
+                class="form-control"
+                placeholder="Enter a name for your room"
+              />
+            </div>
+            <button type="submit" class="btn" id="create-room-submit-btn">
+              Create Room
+            </button>
+          </form>
+
+          <div class="text-center mt-20">
+            <button class="btn btn-secondary" id="back-to-options-btn-2">
+              Back to Options
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Chat Room Section -->
+      <section id="chat-section" class="hidden">
+        <div class="chat-container">
+          <div class="chat-header">
+            <div class="room-info">
+              <h2 id="current-room-name">Room Name</h2>
+              <div class="room-code" id="current-room-code">123456</div>
+            </div>
+            <button id="leave-room-btn" class="btn btn-secondary">
+              Leave Room
+            </button>
+          </div>
+
+          <div class="chat-messages" id="chat-messages">
+            <!-- Messages will be added here dynamically -->
+          </div>
+
+          <div class="chat-input">
+            <input
+              type="text"
+              class="message-input"
+              id="message-input"
+              placeholder="Type your message..."
+            />
+            <input
+              type="file"
+              id="file-input"
+              class="hidden"
+              accept="image/*,video/*,image/gif"
+            />
+            <button class="attach-btn" id="attach-btn">
+              <svg
+                class="icon"
+                aria-hidden="true"
+                focusable="false"
+                data-prefix="fas"
+                data-icon="paperclip"
+                role="img"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 448 512"
+              >
+                <path
+                  fill="currentColor"
+                  d="M43.246 466.142c-58.43-60.289-57.341-157.511 1.386-217.581L254.392 34c44.316-45.332 116.351-45.336 160.671 0 44.365 45.336 44.352 118.983 0 164.319l-210.6 214.862c-41.995 43.028-110.371 42.937-152.378-.071-41.979-42.048-41.927-110.376.051-152.454l179.054-182.325c16.416-16.661 43.025-16.637 59.412.031 16.43 16.645 16.415 43.503-.031 60.131l-179.046 182.325c-7.126 7.24-7.188 19.115-.062 26.401 7.125 7.234 18.687 7.188 25.781-.062l210.6-214.862c19.582-19.989 19.576-52.393-.011-72.368-19.613-19.989-51.394-19.988-71.007.011l-209.78 214.042c-34.693 35.358-34.679 92.857.028 128.199 34.701 35.379 91.042 35.371 125.743-.028l210.6-214.862c7.126-7.24 18.687-7.188 25.781.062 7.125 7.234 7.188 19.115.062 26.401l-210.6 214.862c-44.316 45.332-116.351 45.336-160.671 0zm0 0"
+                ></path>
+              </svg>
+            </button>
+            <button class="send-btn" id="send-btn">
+              <svg
+                class="icon"
+                aria-hidden="true"
+                focusable="false"
+                data-prefix="fas"
+                data-icon="paper-plane"
+                role="img"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 512 512"
+              >
+                <path
+                  fill="currentColor"
+                  d="M476 3.2L12.5 270.6c-18.1 10.4-15.8 35.6 2.2 43.2L121 358.4l287.3-253.2c5.5-4.9 13.3 2.6 8.6 8.3L176 407v80.5c0 23.6 28.5 32.9 42.5 15.8L282 426l124.6 52.2c14.2 6 30.4-2.9 33-18.2l72-432C515 7.8 493.3-6.8 476 3.2z"
+                ></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Notification Element -->
+    <div class="notification hidden" id="notification"></div>
+
+    <script>
+      // API Base URL - Update this to match your backend URL
+      const API_BASE_URL = "http://192.168.0.114:8000";
+
+      // Global state
+      let currentUser = null;
+      let currentRoom = null;
+      let authToken = null;
+      let websocket = null;
+      let lastMessageId = null;
+
+      // DOM Elements
+      const authSection = document.getElementById("auth-section");
+      const roomSelectionSection = document.getElementById(
+        "room-selection-section"
+      );
+      const joinRoomSection = document.getElementById("join-room-section");
+      const createRoomSection = document.getElementById("create-room-section");
+      const chatSection = document.getElementById("chat-section");
+
+      const loginForm = document.getElementById("login-form");
+      const signupForm = document.getElementById("signup-form");
+      const loginTab = document.getElementById("login-tab");
+      const signupTab = document.getElementById("signup-tab");
+
+      const joinRoomBtn = document.getElementById("join-room-btn");
+      const createRoomBtn = document.getElementById("create-room-btn");
+      const logoutBtn = document.getElementById("logout-btn");
+
+      const joinRoomForm = document.getElementById("join-room-form");
+      const createRoomForm = document.getElementById("create-room-form");
+      const backToOptionsBtn = document.getElementById("back-to-options-btn");
+      const backToOptionsBtn2 = document.getElementById(
+        "back-to-options-btn-2"
+      );
+
+      const chatMessages = document.getElementById("chat-messages");
+      const messageInput = document.getElementById("message-input");
+      const sendBtn = document.getElementById("send-btn");
+      const attachBtn = document.getElementById("attach-btn");
+      const fileInput = document.getElementById("file-input");
+      const leaveRoomBtn = document.getElementById("leave-room-btn");
+      const currentRoomName = document.getElementById("current-room-name");
+      const currentRoomCode = document.getElementById("current-room-code");
+
+      const notification = document.getElementById("notification");
+
+      // Check if user is already logged in
+      document.addEventListener("DOMContentLoaded", () => {
+        const savedToken = localStorage.getItem("meetme_token");
+        const savedUser = localStorage.getItem("meetme_user");
+
+        if (savedToken && savedUser) {
+          authToken = savedToken;
+          currentUser = JSON.parse(savedUser);
+          showRoomSelection();
+        } else {
+          showAuth();
+        }
+      });
+
+      // Auth tabs functionality
+      loginTab.addEventListener("click", () => {
+        loginForm.classList.remove("hidden");
+        signupForm.classList.add("hidden");
+        loginTab.classList.add("active");
+        signupTab.classList.remove("active");
+      });
+
+      signupTab.addEventListener("click", () => {
+        signupForm.classList.remove("hidden");
+        loginForm.classList.add("hidden");
+        signupTab.classList.add("active");
+        loginTab.classList.remove("active");
+      });
+
+      // Login form submission
+      loginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const email = document.getElementById("login-email").value;
+        const password = document.getElementById("login-password").value;
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ email, password }),
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            authToken = data.access_token;
+            // Get user info
+            const userResponse = await fetch(`${API_BASE_URL}/api/users/me`, {
+              headers: {
+                Authorization: `Bearer ${authToken}`,
+              },
+            });
+
+            if (userResponse.ok) {
+              currentUser = await userResponse.json();
+              localStorage.setItem("meetme_token", authToken);
+              localStorage.setItem("meetme_user", JSON.stringify(currentUser));
+              showRoomSelection();
+              showNotification("Login successful!", "success");
+            } else {
+              throw new Error("Failed to get user info");
+            }
+          } else {
+            throw new Error(data.detail || "Login failed");
+          }
+        } catch (error) {
+          showNotification(error.message, "error");
+        }
+      });
+
+      // Signup form submission
+      signupForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const email = document.getElementById("signup-email").value;
+        const username = document.getElementById("signup-username").value;
+        const password = document.getElementById("signup-password").value;
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/auth/signup`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ email, username, password }),
+          });
+
+          const data = await response.json();
+
+          if (response.ok) {
+            authToken = data.access_token;
+            // Get user info
+            const userResponse = await fetch(`${API_BASE_URL}/api/users/me`, {
+              headers: {
+                Authorization: `Bearer ${authToken}`,
+              },
+            });
+
+            if (userResponse.ok) {
+              currentUser = await userResponse.json();
+              localStorage.setItem("meetme_token", authToken);
+              localStorage.setItem("meetme_user", JSON.stringify(currentUser));
+              showRoomSelection();
+              showNotification("Account created successfully!", "success");
+            } else {
+              throw new Error("Failed to get user info");
+            }
+          } else {
+            throw new Error(data.detail || "Signup failed");
+          }
+        } catch (error) {
+          showNotification(error.message, "error");
+        }
+      });
+
+      // Logout functionality
+      logoutBtn.addEventListener("click", () => {
+        localStorage.removeItem("meetme_token");
+        localStorage.removeItem("meetme_user");
+        authToken = null;
+        currentUser = null;
+        showAuth();
+      });
+
+      // Join room button
+      joinRoomBtn.addEventListener("click", () => {
+        roomSelectionSection.classList.add("hidden");
+        joinRoomSection.classList.remove("hidden");
+      });
+
+      // Create room button
+      createRoomBtn.addEventListener("click", () => {
+        roomSelectionSection.classList.add("hidden");
+        createRoomSection.classList.remove("hidden");
+      });
+
+      // Back to options buttons
+      backToOptionsBtn.addEventListener("click", showRoomSelection);
+      backToOptionsBtn2.addEventListener("click", showRoomSelection);
+
+      // Join room form submission
+      joinRoomForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const roomCode = document.getElementById("room-code").value;
+
+        try {
+          const response = await fetch(
+            `${API_BASE_URL}/api/rooms/join/${roomCode}`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${authToken}`,
+              },
+            }
+          );
+
+          if (response.ok) {
+            currentRoom = await response.json();
+            loadChatRoom();
+          } else {
+            const error = await response.json();
+            throw new Error(error.detail || "Failed to join room");
+          }
+        } catch (error) {
+          showNotification(error.message, "error");
+        }
+      });
+
+      // Create room form submission
+      createRoomForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const roomName = document.getElementById("room-name").value;
+        const roomData = roomName ? { name: roomName } : {};
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/rooms`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(roomData),
+          });
+
+          if (response.ok) {
+            currentRoom = await response.json();
+            loadChatRoom();
+          } else {
+            const error = await response.json();
+            throw new Error(error.detail || "Failed to create room");
+          }
+        } catch (error) {
+          showNotification(error.message, "error");
+        }
+      });
+
+      // Send message functionality
+      sendBtn.addEventListener("click", sendMessage);
+      messageInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+          sendMessage();
+        }
+      });
+
+      // Attach file functionality
+      attachBtn.addEventListener("click", () => {
+        fileInput.click();
+      });
+
+      fileInput.addEventListener("change", async () => {
+        if (fileInput.files.length > 0) {
+          const file = fileInput.files[0];
+
+          // Check file size (15MB max)
+          if (file.size > 15 * 1024 * 1024) {
+            showNotification("File size exceeds 15MB limit", "error");
+            return;
+          }
+
+          // Determine content type based on file type
+          let contentType = "text";
+          if (file.type.startsWith("image/")) {
+            contentType = file.type === "image/gif" ? "gif" : "image";
+          } else if (file.type.startsWith("video/")) {
+            contentType = "video";
+          }
+
+          const formData = new FormData();
+          formData.append("content_type", contentType);
+          formData.append("content", file.name);
+          formData.append("file", file);
+
+          try {
+            const response = await fetch(
+              `${API_BASE_URL}/api/rooms/${currentRoom.id}/files`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${authToken}`,
+                },
+                body: formData,
+              }
+            );
+
+            if (response.ok) {
+              const message = await response.json();
+              addMessageToChat(message, true);
+              fileInput.value = "";
+            } else {
+              const error = await response.json();
+              throw new Error(error.detail || "Failed to send file");
+            }
+          } catch (error) {
+            showNotification(error.message, "error");
+          }
+        }
+      });
+
+      // Leave room button
+      leaveRoomBtn.addEventListener("click", () => {
+        if (websocket) {
+          websocket.close();
+          websocket = null;
+        }
+        currentRoom = null;
+        lastMessageId = null;
+        showRoomSelection();
+      });
+
+      // Function to show authentication section
+      function showAuth() {
+        roomSelectionSection.classList.add("hidden");
+        joinRoomSection.classList.add("hidden");
+        createRoomSection.classList.add("hidden");
+        chatSection.classList.add("hidden");
+        authSection.classList.remove("hidden");
+
+        // Reset forms
+        loginForm.reset();
+        signupForm.reset();
+      }
+
+      // Function to show room selection section
+      function showRoomSelection() {
+        authSection.classList.add("hidden");
+        joinRoomSection.classList.add("hidden");
+        createRoomSection.classList.add("hidden");
+        chatSection.classList.add("hidden");
+        roomSelectionSection.classList.remove("hidden");
+
+        // Reset forms
+        joinRoomForm.reset();
+        createRoomForm.reset();
+      }
+
+      // Function to load chat room
+      async function loadChatRoom() {
+        joinRoomSection.classList.add("hidden");
+        createRoomSection.classList.add("hidden");
+        roomSelectionSection.classList.add("hidden");
+        chatSection.classList.remove("hidden");
+
+        // Set room info
+        currentRoomName.textContent =
+          currentRoom.name || `Room ${currentRoom.code}`;
+        currentRoomCode.textContent = currentRoom.code;
+
+        // Load messages
+        try {
+          const response = await fetch(
+            `${API_BASE_URL}/api/rooms/${currentRoom.id}/messages`,
+            {
+              headers: {
+                Authorization: `Bearer ${authToken}`,
+              },
+            }
+          );
+
+          if (response.ok) {
+            const messages = await response.json();
+            chatMessages.innerHTML = "";
+            messages.forEach((message) => {
+              addMessageToChat(message);
+            });
+            scrollToBottom();
+
+            // Store the ID of the last message
+            if (messages.length > 0) {
+              lastMessageId = messages[messages.length - 1].id;
+            }
+          } else {
+            const error = await response.json();
+            throw new Error(error.detail || "Failed to load messages");
+          }
+        } catch (error) {
+          showNotification(error.message, "error");
+        }
+
+        // Connect to WebSocket
+        connectWebSocket();
+      }
+
+      // Function to connect to WebSocket for real-time updates
+      function connectWebSocket() {
+        if (websocket) {
+          websocket.close();
+        }
+        const wsProtocol =
+          window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsHost = API_BASE_URL.replace(/^https?:\/\//, "");
+        const wsUrl = `${wsProtocol}//${wsHost}/ws/rooms/${currentRoom.id}?token=${authToken}`;
+        websocket = new WebSocket(wsUrl);
+        websocket.onopen = () => {
+          console.log("WebSocket connection established");
+          // Send a ping to keep connection alive
+          setInterval(() => {
+            if (websocket.readyState === WebSocket.OPEN) {
+              websocket.send("ping");
+            }
+          }, 30000); // Send ping every 30 seconds
+        };
+        // START OF CORRECTED CODE BLOCK
+        websocket.onmessage = async (event) => {
+          // Handle heartbeat responses first
+          if (event.data === "pong") {
+            return; // Do nothing for pong
+          }
+
+          try {
+            // Now try to parse as JSON for actual notifications
+            const data = JSON.parse(event.data);
+            if (data.type === "new_message") {
+              console.log(
+                "New message notification received, fetching messages..."
+              );
+              // Fetch all messages to get the latest
+              await fetchNewMessages();
+            }
+            // You can add handling for other message types here in the future
+          } catch (error) {
+            console.error(
+              "Error processing WebSocket message:",
+              error,
+              event.data
+            );
+          }
+        };
+        // END OF CORRECTED CODE BLOCK
+        websocket.onclose = () => {
+          console.log("WebSocket connection closed");
+          // Try to reconnect after 5 seconds
+          setTimeout(() => {
+            if (currentRoom) {
+              console.log("Attempting to reconnect WebSocket...");
+              connectWebSocket();
+            }
+          }, 5000);
+        };
+        websocket.onerror = (error) => {
+          console.error("WebSocket error:", error);
+        };
+      }
+
+      websocket.onclose = () => {
+        console.log("WebSocket connection closed");
+        // Try to reconnect after 5 seconds
+        setTimeout(() => {
+          if (currentRoom) {
+            console.log("Attempting to reconnect WebSocket...");
+            connectWebSocket();
+          }
+        }, 5000);
+      };
+
+      websocket.onerror = (error) => {
+        console.error("WebSocket error:", error);
+      };
+
+      // Function to fetch new messages
+      async function fetchNewMessages() {
+        try {
+          const response = await fetch(
+            `${API_BASE_URL}/api/rooms/${currentRoom.id}/messages`,
+            {
+              headers: {
+                Authorization: `Bearer ${authToken}`,
+              },
+            }
+          );
+
+          if (response.ok) {
+            const messages = await response.json();
+
+            // Clear existing messages and repopulate
+            chatMessages.innerHTML = "";
+            messages.forEach((message) => {
+              addMessageToChat(message);
+            });
+
+            // Update the last message ID if we have messages
+            if (messages.length > 0) {
+              lastMessageId = messages[messages.length - 1].id;
+            }
+
+            scrollToBottom();
+          }
+        } catch (error) {
+          console.error("Error fetching new messages:", error);
+        }
+      }
+
+      // Function to send a message
+      async function sendMessage() {
+        const messageText = messageInput.value.trim();
+        if (!messageText) return;
+
+        try {
+          const response = await fetch(
+            `${API_BASE_URL}/api/rooms/${currentRoom.id}/messages`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${authToken}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                content: messageText,
+                content_type: "text",
+              }),
+            }
+          );
+
+          if (response.ok) {
+            const message = await response.json();
+            addMessageToChat(message, true);
+            messageInput.value = "";
+
+            // Update the last message ID
+            lastMessageId = message.id;
+          } else {
+            const error = await response.json();
+            throw new Error(error.detail || "Failed to send message");
+          }
+        } catch (error) {
+          showNotification(error.message, "error");
+        }
+      }
+
+      // Function to add a message to the chat UI
+      function addMessageToChat(message, isSentByCurrentUser = false) {
+        // Determine if the message was sent by the current user
+        // This fixes the bug: compare the message's user_id with the global currentUser's id
+        const isCurrentUser = message.user_id === currentUser.id;
+
+        const messageElement = document.createElement("div");
+        messageElement.classList.add("message");
+        messageElement.classList.add(isCurrentUser ? "sent" : "received");
+        messageElement.dataset.messageId = message.id;
+        let messageContent = "";
+        // Handle different content types
+        if (message.content_type === "text") {
+          messageContent = `<div class="message-content">${escapeHtml(
+            message.content
+          )}</div>`;
+        } else if (message.content_type === "image") {
+          messageContent = `
+                          <div class="message-content">Image shared</div>
+                          <img src="${API_BASE_URL}/${message.file_path}" alt="Shared image" class="message-img">
+                      `;
+        } else if (message.content_type === "video") {
+          messageContent = `
+                          <div class="message-content">Video shared</div>
+                          <video controls class="message-video">
+                              <source src="${API_BASE_URL}/${message.file_path}" type="video/mp4">
+                              Your browser does not support the video tag.
+                          </video>
+                      `;
+        } else if (message.content_type === "gif") {
+          messageContent = `
+                          <div class="message-content">GIF shared</div>
+                          <img src="${API_BASE_URL}/${message.file_path}" alt="Shared GIF" class="message-img">
+                      `;
+        } else if (message.content_type === "file") {
+          messageContent = `
+                          <div class="message-content">File shared: ${escapeHtml(
+                            message.content
+                          )}</div>
+                      `;
+        }
+        // Format timestamp
+        const timestamp = new Date(message.created_at).toLocaleTimeString();
+        messageElement.innerHTML = `
+                      ${messageContent}
+                      <div class="message-info">
+                          ${
+                            isCurrentUser ? "You" : escapeHtml(message.username)
+                          } • ${timestamp}
+                      </div>
+                  `;
+        chatMessages.appendChild(messageElement);
+        scrollToBottom();
+      }
+
+      // Function to scroll to the bottom of the chat
+      function scrollToBottom() {
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+
+      // Function to show notification
+      function showNotification(message, type = "info") {
+        notification.textContent = message;
+        notification.className = `notification ${type}`;
+        notification.classList.remove("hidden");
+        notification.classList.add("show");
+
+        setTimeout(() => {
+          notification.classList.remove("show");
+          setTimeout(() => {
+            notification.classList.add("hidden");
+          }, 300);
+        }, 3000);
+      }
+
+      // Utility function to escape HTML
+      function escapeHtml(text) {
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+    </script>
+  </body>
+</html>
+
